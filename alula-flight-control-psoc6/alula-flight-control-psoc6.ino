@@ -28,13 +28,13 @@ int last_right = 90;
 float smooth_pitch = 95;
 float smooth_roll = 90;
 
-// Max servo step per 15 ms
-// Absorbs jitter
-const int MAX_STEP = 4;
+// Trimming to neutral
+const int ROLL_TRIM = 0;
+const int PITCH_TRIM = 0;
 
-// Trim: raise left wing to match right wing level
-// Increase this value if left wing is still too low
-const int TRIM_LEFT = 5;
+//Sensibility
+const float PITCH_RATE = 0.15;
+const float ROLL_RATE = 0.20;
 
 //Failsafe variables
 unsigned long lastPackageTime = millis();
@@ -49,25 +49,26 @@ bool prev_steer_active = false;
 void elevon_mixing(int target_pitch, int target_roll, int* out_left, int* out_right){
     float interpolation = 0.45;
 
-      smooth_pitch += (target_pitch - smooth_pitch) * interpolation;
-      smooth_roll += (target_roll - smooth_roll) * interpolation;
-
-      *out_left  = constrain((int)(smooth_pitch - (smooth_roll - 90)) + TRIM_LEFT, 40, 140);
-      *out_right = constrain((int)(smooth_pitch + (smooth_roll - 90)), 40, 140);
+    //Absolute change from neutral
+      float delta_pitch = (int)target_pitch - 95;
+      float delta_roll = (int)target_roll - 90;
+    //Scaling down movement
+      float target_smooth_pitch = delta_pitch * PITCH_RATE;
+      float target_smooth_roll  = delta_roll * ROLL_RATE;
+    //Interpolation
+      smooth_pitch += (target_smooth_pitch - smooth_pitch) * interpolation;
+      smooth_roll += (target_smooth_roll - smooth_roll) * interpolation;
+    //Mixing
+      *out_left  = constrain((int)(SERVO_LEFT_NEUTRAL + smooth_pitch - smooth_roll), 50, 120);
+      *out_right = constrain((int)(SERVO_RIGHT_NEUTRAL + smooth_pitch + smooth_roll), 50, 120);
 }
-
 
 
 // Failsafe: full up-elevator (both elevons up) + slight roll
-// Creates a clear stall/nose-up attitude — very identifiable and slows the aircraft
 void Failsafe(){
-    target_roll  = 80;   // slight left bank for slow spiral
-    target_pitch = 130;  // strong nose-up → both elevons deflect up
+    target_roll  = 80;
+    target_pitch = 110;
 }
-
-
-
-
 
 
 void setup() {
@@ -94,18 +95,14 @@ void setup() {
   Serial.println(localPort);
   Serial.println("Packet format: [0xAA, armed, roll, pitch]");
   Serial.println("----------------------------------");
-
 }
 
 
-
 void loop() {
-
   // Drain UDP buffer - keep only the latest packet to avoid command lag
   uint8_t last_steer = 0, last_roll = 90, last_pitch = 95;
   bool got_packet = false;
   unsigned long currentMillis = millis();
-
 
   while (true) {
           int n = udp.parsePacket();
@@ -120,7 +117,6 @@ void loop() {
           got_packet = true;
   }
 
-
   if (got_packet) 
       {
           steer_active  = (last_steer != 0);
@@ -134,7 +130,6 @@ void loop() {
         Serial.print(" R="); Serial.print(target_roll);
         Serial.print(" P="); Serial.println(target_pitch);
       }
-
     
     if (hasEverReceived && (currentMillis - lastPackageTime > TIMEOUT_CONNECTION_LOST)) 
       {
