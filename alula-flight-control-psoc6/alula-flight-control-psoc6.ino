@@ -27,13 +27,15 @@ int last_left = 90;
 int last_right = 90;
 float smooth_pitch = 95;
 float smooth_roll = 90;
+int SERVO_LEFT_NEUTRAL = 95;
+int SERVO_RIGHT_NEUTRAL = 90;
 
 // Trimming to neutral
 const int ROLL_TRIM = 0;
 const int PITCH_TRIM = 0;
 
 //Sensibility
-const float PITCH_RATE = 0.15;
+const float PITCH_RATE = 0.25;
 const float ROLL_RATE = 0.20;
 
 //Failsafe variables
@@ -157,11 +159,12 @@ void loop() {
                 elevon_mixing(95, 90, &goal_left, &goal_right);
               }
 
-          // write every cycle — no deadband
-          servo_left.write(goal_left);
-          last_left = goal_left;
-
-          servo_right.write(goal_right);
-          last_right = goal_right;
+          // write every cycle
+              servo_left.write(goal_left);
+              last_left = goal_left;
+            
+              servo_right.write(goal_right);
+              last_right = goal_right;
+            
       }
 }
