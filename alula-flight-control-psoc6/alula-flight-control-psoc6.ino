@@ -1,7 +1,6 @@
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include "secrets.h"
-#include <ServoC.h>
 
 // WLAN access
 const char* ssid     = NET_SECRET_SSID;
@@ -11,32 +10,43 @@ const char* password = NET_SECRET_PASSWORD;
 WiFiUDP udp;
 unsigned int localPort = 5005;
 
-// Servos
-ServoC servo_left;
-ServoC servo_right;
+// Hardware PWM servo config
+const int SERVO_LEFT_PIN = 0;
+const int SERVO_RIGHT_PIN = 1;
+const int PWM_RESOLUTION_BITS = 16;
+const long PWM_MAX_VALUE = 65535;     // 2^16 - 1
+const int SERVO_FREQ_HZ = 50;        // standard servo frequency
+const int SERVO_PERIOD_US = 20000;    // 20ms at 50Hz
+const int SERVO_MIN_PULSE_US = 544;   // 0 degrees
+const int SERVO_MAX_PULSE_US = 2400;  // 180 degrees
+
 unsigned long lastServoUpdate = 0;
 const int SERVO_INTERVAL = 50;
 
+// Neutral positions — reference point for all calculations
+const int NEUTRAL_ROLL = 90;   // roll neutral position (degrees)
+const int NEUTRAL_PITCH = 95;  // pitch neutral position (degrees, slightly up for glider trim)
+
 // Shared state (updated from UDP packets)
-volatile uint8_t target_roll  = 90;
-volatile uint8_t target_pitch = 95; 
+volatile uint8_t target_roll  = NEUTRAL_ROLL;
+volatile uint8_t target_pitch = NEUTRAL_PITCH; 
 volatile bool    steer_active = false;
 
 // Smoothing state
-int last_left = 90;
-int last_right = 90;
-float smooth_pitch = 95;
-float smooth_roll = 90;
-int SERVO_LEFT_NEUTRAL = 95;
-int SERVO_RIGHT_NEUTRAL = 90;
+int last_left = NEUTRAL_ROLL;
+int last_right = NEUTRAL_ROLL;
+float smooth_pitch = NEUTRAL_PITCH;
+float smooth_roll = NEUTRAL_ROLL;
+int SERVO_LEFT_NEUTRAL = NEUTRAL_ROLL;
+int SERVO_RIGHT_NEUTRAL = NEUTRAL_ROLL;
 
 // Trimming to neutral
 const int ROLL_TRIM = 0;
 const int PITCH_TRIM = 0;
 
 //Sensibility
-const float PITCH_RATE = 0.25;
-const float ROLL_RATE = 0.20;
+const float PITCH_RATE = 0.20;
+const float ROLL_RATE = 0.30;
 
 //Failsafe variables
 unsigned long lastPackageTime = millis();
@@ -47,22 +57,37 @@ bool hasEverReceived = false;
 bool prev_steer_active = false;
 
 
+// Hardware PWM servo attach — configures pin for 50Hz hardware PWM
+void servo_attach(int pin) {
+    analogWriteResolution(PWM_RESOLUTION_BITS);
+    setAnalogWriteFrequency(pin, SERVO_FREQ_HZ);
+}
+
+// Hardware PWM servo write — converts angle to duty cycle, runs on TCPWM hardware (interrupt-safe)
+void servo_write(int pin, int angle) {
+    angle = constrain(angle, 0, 180);
+    long pulse_us = SERVO_MIN_PULSE_US + (long)angle * (SERVO_MAX_PULSE_US - SERVO_MIN_PULSE_US) / 180;
+    long duty = pulse_us * PWM_MAX_VALUE / SERVO_PERIOD_US;
+    analogWrite(pin, (int)duty);
+}
+
+
 // Mixing function for elevon mixing and interpolation
 void elevon_mixing(int target_pitch, int target_roll, int* out_left, int* out_right){
     float interpolation = 0.45;
 
     //Absolute change from neutral
-      float delta_pitch = (int)target_pitch - 95;
-      float delta_roll = (int)target_roll - 90;
+      float delta_pitch = (int)target_pitch - NEUTRAL_PITCH;
+      float delta_roll = (int)target_roll - NEUTRAL_ROLL;
     //Scaling down movement
-      float target_smooth_pitch = delta_pitch * PITCH_RATE;
-      float target_smooth_roll  = delta_roll * ROLL_RATE;
+      float target_smooth_pitch = delta_pitch * ROLL_RATE;
+      float target_smooth_roll  = delta_roll * PITCH_RATE;
     //Interpolation
       smooth_pitch += (target_smooth_pitch - smooth_pitch) * interpolation;
       smooth_roll += (target_smooth_roll - smooth_roll) * interpolation;
     //Mixing
-      *out_left  = constrain((int)(SERVO_LEFT_NEUTRAL + smooth_pitch - smooth_roll), 50, 120);
-      *out_right = constrain((int)(SERVO_RIGHT_NEUTRAL + smooth_pitch + smooth_roll), 50, 120);
+      *out_left  = constrain((int)(SERVO_LEFT_NEUTRAL + smooth_pitch - smooth_roll), 60, 120);
+      *out_right = constrain((int)(SERVO_RIGHT_NEUTRAL + smooth_pitch + smooth_roll), 60, 120);
 }
 
 
@@ -83,9 +108,9 @@ void setup() {
   WiFi.beginAP(ssid, password);
   delay(500);
 
-  // Attach servos after WiFi
-  servo_left.attach(0);
-  servo_right.attach(1);
+  // Attach servos after WiFi — uses hardware TCPWM, immune to WiFi interrupts
+  servo_attach(SERVO_LEFT_PIN);
+  servo_attach(SERVO_RIGHT_PIN);
 
   Serial.print("AP active! SSID: ");
   Serial.println(ssid);
@@ -102,7 +127,7 @@ void setup() {
 
 void loop() {
   // Drain UDP buffer - keep only the latest packet to avoid command lag
-  uint8_t last_steer = 0, last_roll = 90, last_pitch = 95;
+  uint8_t last_steer = 0, last_roll = NEUTRAL_ROLL, last_pitch = NEUTRAL_PITCH;
   bool got_packet = false;
   unsigned long currentMillis = millis();
 
@@ -152,18 +177,18 @@ void loop() {
               {
                 // snap smooth state to neutral on disarm transition
                 if (prev_steer_active) {
-                    smooth_pitch = 95;
-                    smooth_roll  = 90;
+                    smooth_pitch = 0;
+                    smooth_roll  = 0;
                     prev_steer_active = false;
                 }
-                elevon_mixing(95, 90, &goal_left, &goal_right);
+                elevon_mixing(NEUTRAL_PITCH, NEUTRAL_ROLL, &goal_left, &goal_right);
               }
 
           // write every cycle
-              servo_left.write(goal_left);
+              servo_write(SERVO_LEFT_PIN, goal_left);
               last_left = goal_left;
             
-              servo_right.write(goal_right);
+              servo_write(SERVO_RIGHT_PIN, goal_right);
               last_right = goal_right;
             
       }
