@@ -25,7 +25,7 @@ const int SERVO_INTERVAL = 50;
 
 // Neutral positions — reference point for all calculations
 const int NEUTRAL_ROLL = 90;   // roll neutral position (degrees)
-const int NEUTRAL_PITCH = 95;  // pitch neutral position (degrees, slightly up for glider trim)
+const int NEUTRAL_PITCH = 90;  // pitch neutral position (degrees, slightly up for glider trim)
 
 // Shared state (updated from UDP packets)
 volatile uint8_t target_roll  = NEUTRAL_ROLL;
@@ -45,8 +45,8 @@ const int ROLL_TRIM = 0;
 const int PITCH_TRIM = 0;
 
 //Sensibility
-const float PITCH_RATE = 0.20;
-const float ROLL_RATE = 0.30;
+const float PITCH_RATE = 0.3;
+const float ROLL_RATE = 0.5;
 
 //Failsafe variables
 unsigned long lastPackageTime = millis();
@@ -63,7 +63,7 @@ void servo_attach(int pin) {
     setAnalogWriteFrequency(pin, SERVO_FREQ_HZ);
 }
 
-// Hardware PWM servo write — converts angle to duty cycle, runs on TCPWM hardware (interrupt-safe)
+// Hardware PWM servo write converts angle to duty cycle, runs on TCPWM hardware
 void servo_write(int pin, int angle) {
     angle = constrain(angle, 0, 180);
     long pulse_us = SERVO_MIN_PULSE_US + (long)angle * (SERVO_MAX_PULSE_US - SERVO_MIN_PULSE_US) / 180;
@@ -74,7 +74,7 @@ void servo_write(int pin, int angle) {
 
 // Mixing function for elevon mixing and interpolation
 void elevon_mixing(int target_pitch, int target_roll, int* out_left, int* out_right){
-    float interpolation = 0.45;
+    float interpolation = 0.80;
 
     //Absolute change from neutral
       float delta_pitch = (int)target_pitch - NEUTRAL_PITCH;
