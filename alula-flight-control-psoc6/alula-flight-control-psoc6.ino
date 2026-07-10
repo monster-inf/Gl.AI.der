@@ -1,7 +1,29 @@
+Read [](file:///c%3A/Users/ungethuem/Workspaces/get-radar-data/proj_cm33_ns/main.c#1-1), lines 1 to 120
+
+```cpp
+/*******************************************************************************
+* File Name        : main.ino
+*
+* Description      : This source file contains the main routine for the PSoC 6
+*                    SoftAP-based UDP glider controller. It receives steering
+*                    packets over Wi-Fi and drives two elevon servos via
+*                    hardware PWM (TCPWM), with elevon mixing, smoothing and
+*                    a connection-loss failsafe.
+*
+* Related Document : See README.md
+*
+*******************************************************************************/
+
+/*******************************************************************************
+* Header Files
+*******************************************************************************/
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include "secrets.h"
 
+/*******************************************************************************
+ * Macros / Constants
+ ******************************************************************************/
 // WLAN access
 const char* ssid     = NET_SECRET_SSID;
 const char* password = NET_SECRET_PASSWORD;
@@ -27,6 +49,9 @@ const int SERVO_INTERVAL = 50;
 const int NEUTRAL_ROLL = 90;   // roll neutral position (degrees)
 const int NEUTRAL_PITCH = 90;  // pitch neutral position (degrees, slightly up for glider trim)
 
+/*******************************************************************************
+ * Global Variables
+ ******************************************************************************/
 // Shared state (updated from UDP packets)
 volatile uint8_t target_roll  = NEUTRAL_ROLL;
 volatile uint8_t target_pitch = NEUTRAL_PITCH; 
@@ -57,13 +82,41 @@ bool hasEverReceived = false;
 bool prev_steer_active = false;
 
 
-// Hardware PWM servo attach — configures pin for 50Hz hardware PWM
+/*******************************************************************************
+* Function Name: servo_attach
+********************************************************************************
+* Summary:
+*   Configures the given pin for 50Hz hardware PWM so a standard servo can be
+*   driven directly by the TCPWM block without any CPU involvement.
+*
+* Parameters:
+*  pin  GPIO pin number to attach the servo to.
+*
+* Return:
+*  void
+*
+*******************************************************************************/
 void servo_attach(int pin) {
     analogWriteResolution(PWM_RESOLUTION_BITS);
     setAnalogWriteFrequency(pin, SERVO_FREQ_HZ);
 }
 
-// Hardware PWM servo write converts angle to duty cycle, runs on TCPWM hardware
+/*******************************************************************************
+* Function Name: servo_write
+********************************************************************************
+* Summary:
+*   Converts a servo angle in degrees into the matching PWM duty cycle and
+*   writes it to the pin. Runs on the TCPWM hardware and is therefore immune
+*   to Wi-Fi interrupt jitter.
+*
+* Parameters:
+*  pin    GPIO pin the servo is attached to.
+*  angle  Target angle in degrees (clamped to 0…180).
+*
+* Return:
+*  void
+*
+*******************************************************************************/
 void servo_write(int pin, int angle) {
     angle = constrain(angle, 0, 180);
     long pulse_us = SERVO_MIN_PULSE_US + (long)angle * (SERVO_MAX_PULSE_US - SERVO_MIN_PULSE_US) / 180;
@@ -72,7 +125,24 @@ void servo_write(int pin, int angle) {
 }
 
 
-// Mixing function for elevon mixing and interpolation
+/*******************************************************************************
+* Function Name: elevon_mixing
+********************************************************************************
+* Summary:
+*   Performs elevon mixing of the target pitch and roll commands and applies
+*   an exponential interpolation for smooth servo motion. The mixed and
+*   constrained left/right servo angles are returned via output pointers.
+*
+* Parameters:
+*  target_pitch  Requested pitch angle in degrees (0…180, 90 = neutral).
+*  target_roll   Requested roll angle in degrees (0…180, 90 = neutral).
+*  out_left      Pointer that receives the resulting left servo angle.
+*  out_right     Pointer that receives the resulting right servo angle.
+*
+* Return:
+*  void
+*
+*******************************************************************************/
 void elevon_mixing(int target_pitch, int target_roll, int* out_left, int* out_right){
     float interpolation = 0.80;
 
@@ -91,13 +161,42 @@ void elevon_mixing(int target_pitch, int target_roll, int* out_left, int* out_ri
 }
 
 
-// Failsafe: full up-elevator (both elevons up) + slight roll
+/*******************************************************************************
+* Function Name: Failsafe
+********************************************************************************
+* Summary:
+*   Forces the glider into a safe recovery attitude by commanding full
+*   up-elevator (both elevons up) with a slight roll. Called when the UDP
+*   command link has been lost for longer than TIMEOUT_CONNECTION_LOST.
+*
+* Parameters:
+*  void
+*
+* Return:
+*  void
+*
+*******************************************************************************/
 void Failsafe(){
     target_roll  = 80;
     target_pitch = 110;
 }
 
 
+/*******************************************************************************
+* Function Name: setup
+********************************************************************************
+* Summary:
+*   Arduino one-shot init routine. Brings up the serial console, starts the
+*   Wi-Fi SoftAP, attaches both servo outputs to hardware PWM and opens the
+*   UDP listening socket used to receive steering commands.
+*
+* Parameters:
+*  void
+*
+* Return:
+*  void
+*
+*******************************************************************************/
 void setup() {
   Serial.begin(115200);
   delay(2000);
@@ -125,6 +224,22 @@ void setup() {
 }
 
 
+/*******************************************************************************
+* Function Name: loop
+********************************************************************************
+* Summary:
+*   Arduino main loop. Drains the UDP RX buffer keeping only the latest valid
+*   packet to avoid command lag, updates the shared steering state, runs the
+*   connection-loss failsafe check and periodically updates the elevon
+*   servos via elevon_mixing / servo_write at SERVO_INTERVAL cadence.
+*
+* Parameters:
+*  void
+*
+* Return:
+*  void
+*
+*******************************************************************************/
 void loop() {
   // Drain UDP buffer - keep only the latest packet to avoid command lag
   uint8_t last_steer = 0, last_roll = NEUTRAL_ROLL, last_pitch = NEUTRAL_PITCH;
@@ -193,3 +308,4 @@ void loop() {
             
       }
 }
+```
